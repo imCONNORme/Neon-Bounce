@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Bounce</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        /* General styling for the page */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Poppins', sans-serif;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Container for the game canvas and UI elements */
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            max-width: 420px;
+            aspect-ratio: 9 / 16;
+            background: #0f0c29;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 20px;
+            overflow: hidden;
+            border: 3px solid #4a4a8a;
+        }
+
+        /* The main game canvas */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 18px;
+            background: linear-gradient(to bottom, #16222A, #3A6073);
+        }
+
+        /* Styling for UI overlays (start menu, game over screen) */
+        .ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(5px);
+            padding: 20px;
+            box-sizing: border-box;
+            opacity: 1;
+            transition: opacity 0.5s ease;
+            z-index: 10;
+        }
+
+        .ui-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .ui-overlay h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            margin: 0;
+            background: linear-gradient(45deg, #f3ec78, #af4261);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 15px rgba(243, 236, 120, 0.4);
+        }
+
+        .ui-overlay h2 {
+            font-size: 1.5rem;
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #d0d0ff;
+        }
+
+        .ui-overlay p {
+            font-size: 1rem;
+            max-width: 80%;
+            line-height: 1.5;
+            color: #b0b0d0;
+        }
+
+        .ui-button {
+            background: linear-gradient(45deg, #8A2387, #E94057, #F27121);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 15px rgba(233, 64, 87, 0.4);
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .ui-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(233, 64, 87, 0.6);
+        }
+        
+        #scoreContainer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: white;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        #scoreContainer.visible {
+            opacity: 1;
+        }
+        
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- UI: Start Menu -->
+        <div id="startMenu" class="ui-overlay">
+            <h1>Neon Bounce</h1>
+            <p>Use your <strong>mouse</strong> or <strong>arrow keys</strong> to move the ball.</p>
+            <p>Bounce on platforms to go higher. You can chain jumps even while rising!</p>
+            <button id="startButton" class="ui-button">Start Game</button>
+        </div>
+
+        <!-- UI: Game Over Screen -->
+        <div id="gameOverScreen" class="ui-overlay hidden">
+            <h1>Game Over</h1>
+            <h2>Your Score: <span id="finalScore">0</span></h2>
+            <p>High Score: <span id="highScore">0</span></p>
+            <button id="restartButton" class="ui-button">Play Again</button>
+        </div>
+        
+        <!-- UI: In-game Score Display -->
+        <div id="scoreContainer">
+            Score: <span id="score">0</span>
+        </div>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // DOM Elements
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const gameContainer = document.getElementById('gameContainer');
+
+            const startMenu = document.getElementById('startMenu');
+            const gameOverScreen = document.getElementById('gameOverScreen');
+            const startButton = document.getElementById('startButton');
+            const restartButton = document.getElementById('restartButton');
+            
+            const scoreDisplay = document.getElementById('score');
+            const scoreContainer = document.getElementById('scoreContainer');
+            const finalScoreDisplay = document.getElementById('finalScore');
+            const highScoreDisplay = document.getElementById('highScore');
+
+            // Game variables
+            let width, height;
+            let ball, platforms, particles, stars;
+            let score, highScore;
+            let gravity = 0.4;
+            let greenLift = -11.4; // Simple jump (95% of original)
+            let blueLift = -20;  // Bigger jump (Slightly increased)
+            let goldLift = -34;  // Massive jump (1.4x increase)
+            let rainbowLift = -60; // Super high launch (Reduced from -80 for better control)
+            let cameraY = 0;
+            let keys = { right: false, left: false };
+            let gameState = 'start'; // 'start', 'playing', 'gameOver'
+
+            // Ball object
+            class Ball {
+                constructor(x, y) {
+                    this.radius = 15;
+                    this.x = x;
+                    this.y = y;
+                    this.dy = greenLift; // Initial velocity upwards
+                    this.colorAngle = 0;
+                    this.isBoosting = false; // For rainbow pad effect
+                    this.trail = []; // For the fluid trail effect
+                }
+
+                draw() {
+                    this.colorAngle = (this.colorAngle + 2) % 360;
+                    const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+                    gradient.addColorStop(0, `hsl(${this.colorAngle}, 100%, 75%)`);
+                    gradient.addColorStop(1, `hsl(${(this.colorAngle + 60) % 360}, 100%, 50%)`);
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = gradient;
+                    ctx.shadowColor = `hsl(${this.colorAngle}, 100%, 50%)`;
+                    ctx.shadowBlur = 15;
+                    ctx.fill();
+                    ctx.closePath();
+                    ctx.shadowBlur = 0;
+                }
+
+                drawTrail() {
+                    if (this.trail.length < 3) return;
+
+                    ctx.save();
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+
+                    // Draw multiple layers of strokes to create a soft, glowing, and fluid trail.
+                    // This method uses smooth curves instead of straight segments, fixing the choppy look.
+                    for (let i = 0; i < 5; i++) {
+                        const alpha = 0.2 - i * 0.04; // Outer layers are more transparent
+                        const lineWidth = (this.radius * 1.5) - (i * 3); // Outer layers are thicker, creating a tapered glow
+                        if (lineWidth <= 0) continue;
+
+                        ctx.beginPath();
+                        // Start path at the very first point in the trail history
+                        ctx.moveTo(this.trail[0].x, this.trail[0].y);
+
+                        // Draw a smooth curve through the trail points
+                        for (let j = 1; j < this.trail.length - 1; j++) {
+                            const p1 = this.trail[j];
+                            const p2 = this.trail[j+1];
+                            // Calculate a midpoint to serve as the endpoint of the curve segment
+                            const midPoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+                            // The actual point becomes the control point, ensuring the curve passes through it smoothly
+                            ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y);
+                        }
+                        
+                        // The stroke color matches the ball's current glow
+                        const color = `hsla(${this.colorAngle}, 100%, 75%, ${alpha})`;
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = lineWidth;
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+
+                update() {
+                    // Apply gravity
+                    let effectiveGravity = gravity;
+                    // Apply less gravity during a powerful rainbow boost for a more "floaty" feel
+                    if (this.isBoosting && this.dy < 0) {
+                        effectiveGravity = gravity * 0.6; // Deceleration is now even slower for a more natural arc
+                    }
+                    this.dy += effectiveGravity;
+                    
+                    // Limit fall speed
+                    if (this.dy > 15) this.dy = 15;
+                    this.y += this.dy;
+
+                    // Update trail
+                    if (this.isBoosting) {
+                        this.trail.push({ x: this.x, y: this.y });
+                        if (this.trail.length > 35) { // Increased trail length for a more dramatic effect
+                            this.trail.shift();
+                        }
+                    } else {
+                        if (this.trail.length > 0) {
+                            this.trail.shift(); // Shrink trail when not boosting
+                        }
+                    }
+                    
+                    // Horizontal movement
+                    if (keys.right) {
+                        this.x += 5;
+                    }
+                    if (keys.left) {
+                        this.x -= 5;
+                    }
+
+                    // Screen wrapping
+                    if (this.x > width + this.radius) {
+                        this.x = -this.radius;
+                    }
+                    if (this.x < -this.radius) {
+                        this.x = width + this.radius;
+                    }
+                }
+            }
+            
+            // Platform object
+            class Platform {
+                constructor(x, y, type = 'normal') {
+                    this.width = 85;
+                    this.height = 20; // A little bit bigger
+                    this.x = x;
+                    this.y = y;
+                    this.type = type; // 'normal', 'blue', 'gold', 'rainbow', 'broken'
+                    this.isBroken = false;
+                    this.gradientOffset = Math.random() * 100;
+                    
+                    // For moving platforms
+                    this.isMoving = false;
+                    this.dx = 0;
+                    this.moveRange = 0;
+                    this.startX = x;
+                }
+
+                update() {
+                    if (!this.isMoving) return;
+                    this.x += this.dx;
+                    // Reverse direction at edges of range
+                    if (this.x < this.startX - this.moveRange || this.x > this.startX + this.moveRange) {
+                        this.dx *= -1;
+                    }
+                }
+
+                draw() {
+                    ctx.beginPath();
+                    ctx.roundRect(this.x, this.y, this.width, this.height, 10);
+                    
+                    if (this.isBroken) return;
+                    
+                    let fillStyle;
+                    switch(this.type) {
+                        case 'rainbow':
+                            this.gradientOffset += 0.02;
+                            const gradient = ctx.createLinearGradient(this.x, this.y, this.x + this.width, this.y);
+                            for (let i = 0; i <= 1; i += 0.1) {
+                                let hue = (Date.now() / 10 + i * 360) % 360;
+                                gradient.addColorStop(i, `hsl(${hue}, 100%, 65%)`);
+                            }
+                            fillStyle = gradient;
+                            ctx.shadowColor = 'rgba(255, 255, 255, 0.7)';
+                            ctx.shadowBlur = 6; // Less shiny
+                            break;
+                        case 'gold':
+                            const goldGradient = ctx.createLinearGradient(this.x, this.y, this.x + this.width, this.y);
+                            goldGradient.addColorStop(0, '#FFD700');
+                            goldGradient.addColorStop(0.5, '#FFA500');
+                            goldGradient.addColorStop(1, '#FFD700');
+                            fillStyle = goldGradient;
+                            ctx.shadowColor = '#FFD700';
+                            ctx.shadowBlur = 5; // Less shiny
+                            break;
+                        case 'blue':
+                            fillStyle = '#00BFFF';
+                            ctx.shadowColor = '#00BFFF';
+                            ctx.shadowBlur = 5; // Less shiny
+                             break;
+                        case 'broken':
+                            fillStyle = '#c7a18f';
+                             break;
+                        default: // normal (green)
+                            fillStyle = '#32CD32'; // A nice, bright green
+                    }
+                    
+                    ctx.fillStyle = fillStyle;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    
+                    if(this.type === 'broken') {
+                         ctx.strokeStyle = '#8c6d62';
+                         ctx.lineWidth = 2;
+                         ctx.moveTo(this.x + 10, this.y + 5);
+                         ctx.lineTo(this.x + this.width - 10, this.y + this.height - 5);
+                         ctx.stroke();
+                         ctx.moveTo(this.x + this.width / 2, this.y + 2);
+                         ctx.lineTo(this.x + this.width / 2, this.y + this.height - 2);
+                         ctx.stroke();
+                    }
+                    
+                    ctx.closePath();
+                }
+            }
+            
+            // Particle object for effects
+            class Particle {
+                constructor(x, y, color, size) {
+                    this.x = x;
+                    this.y = y;
+                    this.size = (Math.random() * size + 1) * 1.2; // A tiny bit bigger overall
+                    this.color = color;
+                    this.dx = (Math.random() - 0.5) * 4;
+                    this.dy = (Math.random() - 0.5) * 4;
+                    this.life = 1;
+                    this.gravity = 0.1; // Add a touch of gravity to particles
+                    this.angle = Math.random() * Math.PI * 2;
+                    this.spin = (Math.random() - 0.5) * 0.2;
+                    this.sides = Math.floor(Math.random() * 3 + 4); // 4 to 6 sides
+                }
+                
+                draw() {
+                    ctx.save();
+                    ctx.globalAlpha = this.life;
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(this.angle);
+                    ctx.beginPath();
+                    // Draw a rough polygon instead of a circle
+                    for (let i = 0; i < this.sides; i++) {
+                        const angle = (i / this.sides) * Math.PI * 2;
+                        const radius = this.size * (0.8 + Math.random() * 0.4); // Varying radius for jaggedness
+                        const xPos = Math.cos(angle) * radius;
+                        const yPos = Math.sin(angle) * radius;
+                        if (i === 0) {
+                            ctx.moveTo(xPos, yPos);
+                        } else {
+                            ctx.lineTo(xPos, yPos);
+                        }
+                    }
+                    ctx.closePath();
+                    ctx.fillStyle = this.color;
+                    ctx.fill();
+                    ctx.restore();
+                }
+                
+                update() {
+                    this.dy += this.gravity; // Apply gravity to make particles arc
+                    this.x += this.dx;
+                    this.y += this.dy;
+                    this.angle += this.spin; // Make them spin
+                    this.life -= 0.04;
+                    if (this.size > 0.2) {
+                        this.size *= 0.97; // Shrink particle a bit faster
+                    }
+                }
+            }
+            
+            // Star object for background
+            class Star {
+                constructor() {
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height;
+                    this.size = Math.random() * 1.5 + 0.5;
+                    this.speed = Math.random() * 0.2 + 0.1;
+                }
+                
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${this.size / 2})`;
+                    ctx.fill();
+                }
+
+                update() {
+                    this.y += this.speed * (1 + score/5000); // stars speed up as score increases
+                    if (this.y > height) {
+                        this.y = -this.size;
+                        this.x = Math.random() * width;
+                    }
+                }
+            }
+
+
+            function init() {
+                resizeCanvas();
+                highScore = localStorage.getItem('neonBounceHighScore') || 0;
+                highScoreDisplay.textContent = highScore;
+                
+                // Initialize background stars
+                stars = [];
+                for(let i=0; i<100; i++) {
+                    stars.push(new Star());
+                }
+
+                resetGame();
+                gameLoop();
+            }
+            
+            function resetGame() {
+                score = 0;
+                cameraY = 0;
+                scoreDisplay.textContent = score;
+
+                ball = new Ball(width / 2, height - 100);
+                
+                platforms = [];
+                let lastX = width / 2;
+                // Create initial platforms in a reachable path
+                for (let i = 0; i < 10; i++) {
+                    let y = height - 70 - (i * 80);
+                    const randomOffset = (Math.random() - 0.5) * 200;
+                    let newX = lastX + randomOffset;
+                    newX = Math.max(10, Math.min(newX, width - 85 - 10));
+                    platforms.push(new Platform(newX, y));
+                    lastX = newX;
+                }
+                // Ensure first jump is possible
+                platforms[0].x = ball.x - platforms[0].width / 2;
+                
+                particles = [];
+            }
+            
+            function startGame() {
+                resetGame();
+                gameState = 'playing';
+                startMenu.classList.add('hidden');
+                gameOverScreen.classList.add('hidden');
+                scoreContainer.classList.add('visible');
+            }
+
+            function gameOver() {
+                gameState = 'gameOver';
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('neonBounceHighScore', highScore);
+                    highScoreDisplay.textContent = highScore;
+                }
+                finalScoreDisplay.textContent = score;
+                gameOverScreen.classList.remove('hidden');
+                scoreContainer.classList.remove('visible');
+            }
+
+            // Game Loop
+            function gameLoop() {
+                ctx.clearRect(0, 0, width, height);
+
+                // Draw background
+                const bgGradient = ctx.createLinearGradient(0,0,0,height);
+                let topColor = `hsl(${200 + (score/100)}, 60%, 15%)`;
+                let bottomColor = `hsl(${240 + (score/100)}, 60%, 25%)`;
+                bgGradient.addColorStop(0, topColor);
+                bgGradient.addColorStop(1, bottomColor);
+                ctx.fillStyle = bgGradient;
+                ctx.fillRect(0,0,width,height);
+                
+                // Draw and update stars
+                stars.forEach(star => {
+                    ctx.save();
+                    ctx.translate(0, -cameraY * star.speed);
+                    star.draw();
+                    ctx.restore();
+                    if(gameState === 'playing') star.update();
+                });
+                
+                // Save context and apply camera translation
+                ctx.save();
+                ctx.translate(0, cameraY);
+                
+                if (gameState === 'playing') {
+                    // Update and draw ball
+                    ball.update();
+
+                    // Handle boosting effects
+                    if (ball.isBoosting) {
+                        if (ball.dy >= -5) { // Stop boosting when the ball slows down
+                            ball.isBoosting = false;
+                        }
+                    }
+
+                    // Update platforms (for movement)
+                    platforms.forEach(p => p.update());
+
+                    // --- JUMP DOMINANCE & CONSISTENCY FIX ---
+                    // The `for...of` loop with a `break` prevents multiple collisions in one frame.
+                    // The new logic inside ensures that a more powerful jump is never overwritten by a weaker one mid-flight.
+                    for (const platform of platforms) {
+                        if (!platform.isBroken) {
+                             const isColliding = ball.x > platform.x - ball.radius &&
+                                      ball.x < platform.x + platform.width + ball.radius &&
+                                      ball.y + ball.radius > platform.y &&
+                                      ball.y + ball.radius < platform.y + platform.height;
+                            
+                             // canBoost allows for chain-jumping while still rising
+                             const canBoost = true;
+                             if (isColliding && (ball.dy >= 0 || canBoost)) {
+                                
+                                let potentialLift;
+                                switch(platform.type) {
+                                    case 'rainbow': potentialLift = rainbowLift; break;
+                                    case 'gold':    potentialLift = goldLift;    break;
+                                    case 'blue':    potentialLift = blueLift;    break;
+                                    default:        potentialLift = greenLift;   break;
+                                }
+
+                                // A new jump is applied only if:
+                                // 1. The ball is falling (dy >= 0).
+                                // 2. The new jump is more powerful (more negative) than the current upward velocity.
+                                if (ball.dy >= 0 || potentialLift < ball.dy) {
+                                    
+                                    // Create bounce particles ONLY when coming down
+                                    if (ball.dy >= 0) {
+                                        // Don't create particles for rainbow (has trail) or broken (has its own effect)
+                                        if (platform.type !== 'rainbow' && platform.type !== 'broken') {
+                                            createJumpParticles(ball.x, platform.y, platform.type);
+                                        }
+                                    }
+
+                                    ball.y = platform.y - ball.radius; // Snap position for consistency
+
+                                    ball.dy = potentialLift; // Set the new velocity
+
+                                    // Handle side-effects of platforms
+                                    if (platform.type === 'rainbow') {
+                                        ball.isBoosting = true;
+                                    } else if (platform.type === 'broken') {
+                                        platform.isBroken = true;
+                                        createBreakParticles(platform.x + platform.width/2, platform.y + platform.height/2);
+                                    }
+                                }
+                                
+                                // Exit the loop immediately after processing the first collision.
+                                break; 
+                             }
+                        }
+                    }
+
+                    // Camera follow logic - ensures camera only moves up
+                    const scrollThreshold = height / 2 - 150; // A line on the screen. When ball crosses it, camera moves.
+                    if (ball.y + cameraY < scrollThreshold) {
+                         // Move camera up to keep the ball at the threshold line.
+                         // cameraY increases as the player gets higher.
+                        cameraY = scrollThreshold - ball.y;
+                    }
+                    
+                    // Update score based on the highest point reached
+                    const currentHeight = Math.floor(cameraY);
+                    if (currentHeight > score) {
+                        score = currentHeight;
+                        scoreDisplay.textContent = score;
+                    }
+
+                    // Game over condition (ball has fallen off the bottom of the screen)
+                    if (ball.y + cameraY > height) {
+                        gameOver();
+                    }
+
+                    // --- Platform Management ---
+
+                    // 1. Generate new platforms.
+                    // This loop ensures there are always platforms generated off-screen, above the player's view.
+                    const generationPoint = -cameraY - 100; // World Y-coordinate 100px above the screen's top edge
+                    
+                    // Get the highest platform object.
+                    let highestPlatform;
+                    if (platforms.length > 0) {
+                        highestPlatform = platforms.reduce((highest, p) => p.y < highest.y ? p : highest, platforms[0]);
+                    } else {
+                        // If all platforms are gone, create a placeholder to generate from.
+                        highestPlatform = { y: -cameraY + 50, x: width / 2 };
+                    }
+                    let highestPlatformY = highestPlatform.y;
+
+
+                    while (highestPlatformY > generationPoint) {
+                        // As score increases, the gap between platforms gets larger.
+                        const baseGap = 55; // Reverted to a larger initial gap
+                        const randomGap = 40; // Reverted to have more initial variety
+                        const scoreGapBonus = Math.min(score / 500, 60); // Cap is slightly lower to prevent impossible late-game jumps
+                        const newY = highestPlatformY - (baseGap + scoreGapBonus + Math.random() * randomGap);
+                        
+                        // --- CORRECTED Reachable Platform Logic ---
+                        // It now uses the X coordinate of the *actual* highest platform, not just the last one in the array.
+                        const lastPlatformX = highestPlatform.x;
+                        const maxHorizontalDist = 170;
+                        const newXOffset = (Math.random() - 0.5) * maxHorizontalDist * 2;
+                        let newX = lastPlatformX + newXOffset;
+
+                        // If the new position is too close to an edge, encourage it to move back towards the center
+                        if (newX < 30 || newX > width - 115) {
+                            newX = lastPlatformX - newXOffset; // Reverse the offset
+                        }
+                        // Clamp to screen bounds
+                        newX = Math.max(10, Math.min(newX, width - 85 - 10));
+                        
+                        // Determine the platform type based on probabilities that change with score.
+                        let type = 'normal';
+                        const rand = Math.random();
+                        
+                        // More broken platforms appear as score increases, but slower.
+                        let brokenChance = 0.10 + Math.min(score / 15000, 0.20); // Starts at 10%, maxes at 30%
+                        const blueChance = 0.15;
+                        const goldChance = 0.07;
+                        const rainbowChance = 0.045; // Increased from 3% to 4.5%
+
+                        if (rand < rainbowChance) type = 'rainbow';
+                        else if (rand < rainbowChance + goldChance) type = 'gold';
+                        else if (rand < rainbowChance + goldChance + blueChance) type = 'blue';
+                        else if (rand < rainbowChance + goldChance + blueChance + brokenChance) type = 'broken';
+                        else type = 'normal';
+                        
+                        const newPlatform = new Platform(newX, newY, type);
+
+                        // Chance for platforms to move increases with score. Starts later and progresses slower.
+                        const movingChance = Math.min(score / 22000, 0.5); // Starts at 0, maxes at 50% chance, appears slower
+                        if (score > 1500 && Math.random() < movingChance && type !== 'broken') {
+                            newPlatform.isMoving = true;
+                            newPlatform.dx = (Math.random() * 1.5 + 0.5) * (Math.random() < 0.5 ? 1 : -1);
+                            newPlatform.moveRange = Math.random() * 40 + 40; // Moves 40-80 pixels either way
+                        }
+                        
+                        platforms.push(newPlatform);
+                        
+                        // Update the highest platform for the next check in the loop.
+                        highestPlatform = newPlatform;
+                        highestPlatformY = newPlatform.y;
+                    }
+
+                    // 2. Remove old platforms.
+                    // To save memory, this removes platforms that are well below the bottom of the screen.
+                    platforms = platforms.filter(p => p.y < cameraY + height + 50);
+
+                } else if (gameState === 'gameOver') {
+                    ball.y += ball.dy; // let ball fall off screen
+                }
+                
+                // Draw all game objects
+                ball.drawTrail(); // Draw the new fluid trail
+                platforms.forEach(p => p.draw());
+                ball.draw();
+                
+                particles.forEach((p, index) => {
+                    p.update();
+                    p.draw();
+                    if (p.life <= 0) {
+                        particles.splice(index, 1);
+                    }
+                });
+
+                ctx.restore(); // Restore context from camera translation
+                
+                requestAnimationFrame(gameLoop);
+            }
+            
+            function createJumpParticles(x, y, type) {
+                const particleCount = 7; // Slightly fewer for a cleaner look
+                let color;
+
+                switch(type) {
+                    case 'gold':    color = '#FFD700'; break;
+                    case 'blue':    color = '#00BFFF'; break;
+                    default:        color = '#32CD32'; break; // Green for normal
+                }
+
+                for (let i = 0; i < particleCount; i++) {
+                    const p = new Particle(x, y, color, 2); // Smaller base size
+                    p.dx = (Math.random() - 0.5) * 5;     // Controlled horizontal spread
+                    p.dy = -(Math.random() * 3 + 1);      // Force them to burst upwards initially
+                    p.life = Math.random() * 0.4 + 0.2;   // Shorter lifespan for a quick pop
+                    particles.push(p);
+                }
+            }
+
+            function createBreakParticles(x, y) {
+                 for(let i=0; i < 15; i++) { // Fewer particles, but more dynamic
+                    const p = new Particle(x, y, '#a1887f', 3); // Slightly smaller wood chips
+                    // Create a more realistic shattering explosion outwards
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 5 + 1;
+                    p.dx = Math.cos(angle) * speed;
+                    p.dy = Math.sin(angle) * speed * 0.7; // Less vertical power
+                    p.life = Math.random() * 0.6 + 0.4;
+                    particles.push(p);
+                }
+            }
+            
+            // Event Listeners
+            function handleKeyDown(e) {
+                if (e.key === 'ArrowRight') keys.right = true;
+                if (e.key === 'ArrowLeft') keys.left = true;
+            }
+
+            function handleKeyUp(e) {
+                if (e.key === 'ArrowRight') keys.right = false;
+                if (e.key === 'ArrowLeft') keys.left = false;
+            }
+            
+            function handleMouseMove(e) {
+                const rect = canvas.getBoundingClientRect();
+                ball.x = e.clientX - rect.left;
+            }
+
+            // Canvas resizing
+            function resizeCanvas() {
+                const rect = gameContainer.getBoundingClientRect();
+                width = rect.width;
+                height = rect.height;
+                canvas.width = width;
+                canvas.height = height;
+            }
+            
+            // Setup
+            window.addEventListener('resize', resizeCanvas);
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            startButton.addEventListener('click', startGame);
+            restartButton.addEventListener('click', startGame);
+
+            // Let's go!
+            init();
+        });
+    </script>
+</body>
+</html>
